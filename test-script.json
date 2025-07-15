@@ -1,0 +1,9 @@
+{
+  "$mulmocast": {"version": "1.0"},
+  "beats": [
+    {
+      "speaker": "Presenter", 
+      "text": "Hello, this is a test of the MulmoCast CLI system"
+    }
+  ]
+}

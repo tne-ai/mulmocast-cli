@@ -1,0 +1,27 @@
+{
+  "$mulmocast": {"version": "1.0"},
+  "title": "Hello World Test",
+  "speechParams": {
+    "provider": "openai",
+    "speakers": {
+      "Presenter": {
+        "voiceId": "shimmer",
+        "displayName": {"en": "Presenter"}
+      }
+    }
+  },
+  "beats": [
+    {
+      "speaker": "Presenter", 
+      "text": "Hello World! This is a test of MulmoCast AI-native presentation platform.",
+      "image": {
+        "type": "textSlide",
+        "slide": {
+          "title": "Hello World",
+          "subtitle": "MulmoCast Test",
+          "bullets": ["AI-native presentation", "Multi-modal output", "JSON-based scripting"]
+        }
+      }
+    }
+  ]
+}
