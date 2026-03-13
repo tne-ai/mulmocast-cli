@@ -1,17 +1,20 @@
 import fs from "fs";
 import path from "path";
 import puppeteer from "puppeteer";
-import { MulmoStudioContext, PDFMode, PDFSize } from "../types/index.js";
+import { GraphAILogger, sleep } from "graphai";
+import { MulmoStudioContext, MulmoCanvasDimension, PDFMode, PDFSize } from "../types/index.js";
 import { MulmoPresentationStyleMethods } from "../methods/index.js";
 import { localizedText, isHttp } from "../utils/utils.js";
-import { getOutputPdfFilePath, writingMessage, getHTMLFile } from "../utils/file.js";
-import { interpolate } from "../utils/markdown.js";
+import { getOutputPdfFilePath, writingMessage, getHTMLFile, mulmoCreditPath } from "../utils/file.js";
+import { interpolate } from "../utils/html_render.js";
 import { MulmoStudioContextMethods } from "../methods/mulmo_studio_context.js";
 
 const isCI = process.env.CI === "true";
 
 type PDFOptions = {
   format?: "Letter" | "A4";
+  width?: string;
+  height?: string;
   landscape?: boolean;
   margin?: {
     top?: string;
@@ -25,14 +28,15 @@ const getPdfSize = (pdfSize: PDFSize) => {
   return pdfSize === "a4" ? "A4" : "Letter";
 };
 
-const loadImage = async (imagePath: string): Promise<string> => {
+const loadImage = async (imagePath: string, index: number): Promise<string> => {
   try {
     const imageData = isHttp(imagePath) ? Buffer.from(await (await fetch(imagePath)).arrayBuffer()) : fs.readFileSync(imagePath);
     const ext = path.extname(imagePath).toLowerCase().replace(".", "");
     const mimeType = ext === "jpg" ? "jpeg" : ext;
     return `data:image/${mimeType};base64,${imageData.toString("base64")}`;
-  } catch (__error) {
-    const placeholderData = fs.readFileSync("assets/images/mulmocast_credit.png");
+  } catch (error) {
+    GraphAILogger.info(`loadImage failed: file: ${imagePath} index: ${index}`, error);
+    const placeholderData = fs.readFileSync(mulmoCreditPath());
     return `data:image/png;base64,${placeholderData.toString("base64")}`;
   }
 };
@@ -125,17 +129,23 @@ const getHandoutTemplateData = (isLandscapeImage: boolean): Record<string, strin
   item_flex: isLandscapeImage ? "flex: 1;" : "",
 });
 
+const resolvePageSize = (pdfMode: PDFMode, pdfSize: PDFSize, imageWidth: number, imageHeight: number, isLandscape: boolean): string => {
+  if (pdfMode === "slide") return `${imageWidth}px ${imageHeight}px`;
+  if (pdfMode === "handout") return `${getPdfSize(pdfSize)} portrait`;
+  return `${getPdfSize(pdfSize)} ${isLandscape ? "landscape" : "portrait"}`;
+};
+
 const generatePDFHTML = async (context: MulmoStudioContext, pdfMode: PDFMode, pdfSize: PDFSize): Promise<string> => {
   const { studio, multiLingual, lang = "en" } = context;
 
   const { width: imageWidth, height: imageHeight } = MulmoPresentationStyleMethods.getCanvasSize(context.presentationStyle);
   const isLandscapeImage = imageWidth > imageHeight;
 
-  const imagePaths = studio.beats.map((beat) => beat.imageFile!);
+  const imageFiles = studio.beats.map((beat) => beat.htmlImageFile! ?? beat.imageFile!);
   const texts = studio.script.beats.map((beat, index) => localizedText(beat, multiLingual?.[index], lang));
 
-  const imageDataUrls = await Promise.all(imagePaths.map(loadImage));
-  const pageSize = pdfMode === "handout" ? `${getPdfSize(pdfSize)} portrait` : `${getPdfSize(pdfSize)} ${isLandscapeImage ? "landscape" : "portrait"}`;
+  const imageDataUrls = await Promise.all(imageFiles.map(loadImage));
+  const pageSize = resolvePageSize(pdfMode, pdfSize, imageWidth, imageHeight, isLandscapeImage);
   const pagesHTML = generatePagesHTML(pdfMode, imageDataUrls, texts);
 
   const template = getHTMLFile(`pdf_${pdfMode}`);
@@ -151,18 +161,13 @@ const generatePDFHTML = async (context: MulmoStudioContext, pdfMode: PDFMode, pd
   return interpolate(template, templateData);
 };
 
-const createPDFOptions = (pdfSize: PDFSize, pdfMode: PDFMode): PDFOptions => {
-  const baseOptions: PDFOptions = {
-    format: getPdfSize(pdfSize),
-    margin: {
-      top: "0",
-      bottom: "0",
-      left: "0",
-      right: "0",
-    },
-  };
+const zeroMargin = { top: "0", bottom: "0", left: "0", right: "0" };
 
-  // handout mode always uses portrait orientation
+const createPDFOptions = (pdfSize: PDFSize, pdfMode: PDFMode, canvasSize: MulmoCanvasDimension): PDFOptions => {
+  if (pdfMode === "slide") {
+    return { width: `${canvasSize.width}px`, height: `${canvasSize.height}px`, margin: zeroMargin };
+  }
+  const baseOptions: PDFOptions = { format: getPdfSize(pdfSize), margin: zeroMargin };
   return pdfMode === "handout" ? { ...baseOptions, landscape: false } : baseOptions;
 };
 
@@ -171,10 +176,13 @@ export const pdfFilePath = (context: MulmoStudioContext, pdfMode: PDFMode) => {
   return getOutputPdfFilePath(fileDirs.outDirPath, studio.filename, pdfMode, lang);
 };
 
+const PDF_CONTENT_TIMEOUT_MS = 60000;
+
 const generatePDF = async (context: MulmoStudioContext, pdfMode: PDFMode, pdfSize: PDFSize): Promise<void> => {
   const outputPdfPath = pdfFilePath(context, pdfMode);
   const html = await generatePDFHTML(context, pdfMode, pdfSize);
-  const pdfOptions = createPDFOptions(pdfSize, pdfMode);
+  const canvasSize = MulmoPresentationStyleMethods.getCanvasSize(context.presentationStyle);
+  const pdfOptions = createPDFOptions(pdfSize, pdfMode, canvasSize);
 
   const browser = await puppeteer.launch({
     args: isCI ? ["--no-sandbox"] : [],
@@ -182,7 +190,8 @@ const generatePDF = async (context: MulmoStudioContext, pdfMode: PDFMode, pdfSiz
 
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.setContent(html, { waitUntil: "domcontentloaded", timeout: PDF_CONTENT_TIMEOUT_MS });
+    await sleep(1000);
     await page.pdf({
       path: outputPdfPath,
       printBackground: true,
@@ -198,7 +207,9 @@ export const pdf = async (context: MulmoStudioContext, pdfMode: PDFMode, pdfSize
   try {
     MulmoStudioContextMethods.setSessionState(context, "pdf", true);
     await generatePDF(context, pdfMode, pdfSize);
-  } finally {
-    MulmoStudioContextMethods.setSessionState(context, "pdf", false);
+    MulmoStudioContextMethods.setSessionState(context, "pdf", false, true);
+  } catch (error) {
+    MulmoStudioContextMethods.setSessionState(context, "pdf", false, false);
+    throw error;
   }
 };

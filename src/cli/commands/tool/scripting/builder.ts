@@ -1,8 +1,8 @@
 import { Argv } from "yargs";
-import { llm } from "../../../../utils/utils.js";
-import { getAvailableTemplates } from "../../../../utils/file.js";
+import { llm } from "../../../../types/provider2agent.js";
+import { getAvailablePromptTemplates } from "../../../../utils/file.js";
 
-const availableTemplateNames = getAvailableTemplates().map((template) => template.filename);
+const availableTemplateNames = getAvailablePromptTemplates().map((template) => template.filename);
 
 export const builder = (yargs: Argv) => {
   return yargs
@@ -25,6 +25,11 @@ export const builder = (yargs: Argv) => {
       default: [],
       type: "array",
       string: true,
+    })
+    .option("input-file", {
+      description: "input file name",
+      demandOption: false,
+      type: "string",
     })
     .option("i", {
       alias: "interactive",

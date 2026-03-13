@@ -1,6 +1,6 @@
-import { MulmoBeat, MulmoScript, MulmoScriptTemplate, MulmoStoryboard } from "../types/index.js";
+import { MulmoBeat, MulmoScript, MulmoPromptTemplate, MulmoStoryboard, MulmoCanvasDimension } from "../types/index.js";
 import { mulmoScriptSchema } from "../types/schema.js";
-import { zodToJsonSchema } from "zod-to-json-schema";
+import { z } from "zod";
 
 export const imagePrompt = (beat: MulmoBeat, style?: string) => {
   return (beat.imagePrompt || `generate image appropriate for the text. text: ${beat.text}`) + "\n" + (style || "");
@@ -15,16 +15,14 @@ export const graphDataScriptGeneratePrompt = (scene: string) => {
   return `Please generate a script from the following scenes: ${scene}`;
 };
 
-export const getMulmoScriptTemplateSystemPrompt = (template: MulmoScriptTemplate, script?: MulmoScript) => {
+export const getMulmoScriptTemplateSystemPrompt = (template: MulmoPromptTemplate, script?: MulmoScript) => {
   // script is provided, use it as a script template
   if (script) {
     return `${template.systemPrompt}\n\`\`\`JSON\n${JSON.stringify(script)}\n\`\`\``;
   }
 
   // script is not provided, use the default schema
-  const defaultSchema = zodToJsonSchema(mulmoScriptSchema, {
-    strictUnions: true,
-  });
+  const defaultSchema = z.toJSONSchema(mulmoScriptSchema);
 
   const specificOutputPrompt = `The output should follow the JSON schema specified below. Please provide your response as valid JSON within \`\`\`json code blocks for clarity.`;
   return `${template.systemPrompt}\n\n${specificOutputPrompt}\n\n\`\`\`JSON\n${JSON.stringify(defaultSchema)}\n\`\`\``;
@@ -34,9 +32,22 @@ export const interactiveClarificationPrompt = `If there are any unclear points, 
 
 export const prefixPrompt = "Here is the web content that can be used as reference material for the script:";
 
-export const translateSystemPrompt = "Please translate the given text into the language specified in language (in locale format, like en, ja, fr, ch).";
+export const translateSystemPrompt =
+  "Please translate ONLY the text content from ## Original Language to ## Target Language (in locale format, like en, ja, fr, ch). Return ONLY the translated text without any formatting markers, language labels, or additional content.";
 
-export const translatePrompts = ["## Original Language", ":lang", "", "## Language", ":targetLang", "", "## Target", ":beat.text"];
+export const translatePrompts = [
+  "## Original Language",
+  ":lang",
+  "",
+  "## Original Text",
+  ":beat.text",
+  "",
+  "## Target Language",
+  ":targetLang",
+  "",
+  "## Target Text",
+  "",
+];
 
 export const sceneToBeatsPrompt = ({
   sampleBeats,
@@ -148,4 +159,15 @@ export const finalAnswerPrompt = (userInput: string, searchResults: string, rese
   Research Topic: ${researchTopic}
   Current Date: ${currentDate}
   `;
+};
+
+export const htmlImageSystemPrompt = (canvasSize: MulmoCanvasDimension) => {
+  return [
+    "Based on the provided information, create a single slide HTML page using Tailwind CSS.",
+    `The view port size is ${canvasSize.width}x${canvasSize.height}. Make sure the HTML fits within the view port.`,
+    "If charts are needed, use Chart.js to present them in a clean and visually appealing way (with animation:false to disable animation).",
+    "Include a balanced mix of comments, graphs, and illustrations to enhance visual impact.",
+    "Output only the HTML code. Do not include any comments, explanations, or additional information outside the HTML.",
+    "If data is provided, use it effectively to populate the slide.",
+  ].join("\n");
 };

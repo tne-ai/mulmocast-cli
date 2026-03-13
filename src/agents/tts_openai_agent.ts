@@ -1,41 +1,82 @@
 import { GraphAILogger } from "graphai";
 import type { AgentFunction, AgentFunctionInfo } from "graphai";
-import OpenAI from "openai";
+import { AuthenticationError, RateLimitError } from "openai";
 import type { SpeechCreateParams } from "openai/resources/audio/speech";
+import { provider2TTSAgent } from "../types/provider2agent.js";
+import { createOpenAIClient } from "../utils/openai_client.js";
+import {
+  apiKeyMissingError,
+  agentIncorrectAPIKeyError,
+  agentAPIRateLimitError,
+  agentGenerationError,
+  audioAction,
+  audioFileTarget,
+} from "../utils/error_cause.js";
+import type { OpenAITTSAgentParams, AgentBufferResult, AgentTextInputs, AgentErrorResult, OpenAIImageAgentConfig } from "../types/agent.js";
 
-export const ttsOpenaiAgent: AgentFunction = async ({ namedInputs, params }) => {
+export const ttsOpenaiAgent: AgentFunction<OpenAITTSAgentParams, AgentBufferResult | AgentErrorResult, AgentTextInputs, OpenAIImageAgentConfig> = async ({
+  namedInputs,
+  params,
+  config,
+}) => {
   const { text } = namedInputs;
-  const { apiKey, model, voice, suppressError, instructions } = params;
-  const openai = new OpenAI({ apiKey });
+  const { model, voice, suppressError, instructions, speed } = params;
+  const { apiKey, baseURL, apiVersion } = config ?? {};
+  if (!apiKey) {
+    throw new Error("OpenAI API key is required (OPENAI_API_KEY)", {
+      cause: apiKeyMissingError("ttsOpenaiAgent", audioAction, "OPENAI_API_KEY"),
+    });
+  }
+  const openai = createOpenAIClient({ apiKey, baseURL, apiVersion });
 
   try {
     const tts_options: SpeechCreateParams = {
-      model: model ?? "gpt-4o-mini-tts", // "tts-1",
-      voice: voice ?? "shimmer",
+      model: model ?? provider2TTSAgent.openai.defaultModel,
+      voice: voice ?? provider2TTSAgent.openai.defaultVoice,
       input: text,
     };
     if (instructions) {
       tts_options["instructions"] = instructions;
     }
+    if (speed) {
+      tts_options["speed"] = speed;
+    }
     GraphAILogger.log("ttsOptions", tts_options);
     const response = await openai.audio.speech.create(tts_options);
     const buffer = Buffer.from(await response.arrayBuffer());
     return { buffer };
-  } catch (e) {
+  } catch (error) {
     if (suppressError) {
       return {
-        error: e,
+        error,
       };
     }
-    GraphAILogger.error(e);
-    if (e && typeof e === "object" && "error" in e) {
-      GraphAILogger.info("tts_openai_agent: ");
-      GraphAILogger.info(e.error);
-    } else if (e instanceof Error) {
-      GraphAILogger.info("tts_openai_agent: ");
-      GraphAILogger.info(e.message);
+    GraphAILogger.error(error);
+
+    if (error instanceof AuthenticationError) {
+      throw new Error("Failed to generate audio: 401 Incorrect API key provided with OpenAI", {
+        cause: agentIncorrectAPIKeyError("ttsOpenaiAgent", audioAction, audioFileTarget),
+      });
     }
-    throw new Error("TTS OpenAI Error");
+    if (error instanceof RateLimitError) {
+      throw new Error("You exceeded your current quota", {
+        cause: agentAPIRateLimitError("ttsOpenaiAgent", audioAction, audioFileTarget),
+      });
+    }
+
+    if (error && typeof error === "object" && "error" in error) {
+      GraphAILogger.info("tts_openai_agent: ");
+      GraphAILogger.info(error.error);
+      throw new Error("TTS OpenAI Error: " + JSON.stringify(error.error, null, 2), {
+        cause: agentGenerationError("ttsOpenaiAgent", audioAction, audioFileTarget),
+      });
+    } else if (error instanceof Error) {
+      GraphAILogger.info("tts_openai_agent: ");
+      GraphAILogger.info(error.message);
+      throw new Error("TTS OpenAI Error: " + error.message, {
+        cause: agentGenerationError("ttsOpenaiAgent", audioAction, audioFileTarget),
+      });
+    }
   }
 };
 

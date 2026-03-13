@@ -1,0 +1,159 @@
+import fs from "fs";
+import { GraphAILogger } from "graphai";
+import type { AgentFunction, AgentFunctionInfo } from "graphai";
+import { provider2ImageAgent } from "../types/provider2agent.js";
+import {
+  apiKeyMissingError,
+  agentIncorrectAPIKeyError,
+  agentGenerationError,
+  agentInvalidResponseError,
+  imageAction,
+  imageFileTarget,
+  hasCause,
+  getGenAIErrorReason,
+  resultify,
+} from "../utils/error_cause.js";
+import { getAspectRatio } from "../utils/utils.js";
+import { ASPECT_RATIOS, PRO_ASPECT_RATIOS } from "../types/const.js";
+import type { AgentBufferResult, ImageAgentInputs, ImageAgentParams, GenAIImageAgentConfig } from "../types/agent.js";
+import { GoogleGenAI, PersonGeneration, GenerateContentResponse } from "@google/genai";
+
+const getGeminiContents = (prompt: string, referenceImages?: string[] | null) => {
+  const contents: { text?: string; inlineData?: { mimeType: string; data: string } }[] = [{ text: prompt }];
+  const images = [...(referenceImages ?? [])];
+  images.forEach((imagePath) => {
+    const imageData = fs.readFileSync(imagePath);
+    const base64Image = imageData.toString("base64");
+    contents.push({ inlineData: { mimeType: "image/png", data: base64Image } });
+  });
+  return contents;
+};
+
+const geminiFlashResult = (response: GenerateContentResponse) => {
+  if (!response.candidates?.[0]?.content?.parts) {
+    throw new Error("ERROR: generateContent returned no candidates", {
+      cause: agentInvalidResponseError("imageGenAIAgent", imageAction, imageFileTarget),
+    });
+  }
+  for (const part of response.candidates[0].content.parts) {
+    if (part.text) {
+      GraphAILogger.info("Gemini image generation response:", part.text);
+    } else if (part.inlineData) {
+      const imageData = part.inlineData.data;
+      if (!imageData) {
+        throw new Error("ERROR: generateContent returned no image data", {
+          cause: agentInvalidResponseError("imageGenAIAgent", imageAction, imageFileTarget),
+        });
+      }
+      const buffer = Buffer.from(imageData, "base64");
+      return { buffer };
+    }
+  }
+  throw new Error("ERROR: generateContent returned no image data", {
+    cause: agentInvalidResponseError("imageGenAIAgent", imageAction, imageFileTarget),
+  });
+};
+
+const errorProcess = (error: Error) => {
+  GraphAILogger.info("Failed to generate image:", error);
+  if (hasCause(error) && error.cause) {
+    throw error;
+  }
+  const reasonDetail = getGenAIErrorReason(error);
+  if (reasonDetail && reasonDetail.reason && reasonDetail.reason === "API_KEY_INVALID") {
+    throw new Error("Failed to generate image: 400 Incorrect API key provided with gemini", {
+      cause: agentIncorrectAPIKeyError("imageGenAIAgent", imageAction, imageFileTarget),
+    });
+  }
+  throw new Error("Failed to generate image with Google GenAI", {
+    cause: agentGenerationError("imageGenAIAgent", imageAction, imageFileTarget),
+  });
+};
+
+export const imageGenAIAgent: AgentFunction<ImageAgentParams, AgentBufferResult, ImageAgentInputs, GenAIImageAgentConfig> = async ({
+  namedInputs,
+  params,
+  config,
+}) => {
+  const { prompt, referenceImages } = namedInputs;
+  const model = params.model ?? provider2ImageAgent["google"].defaultModel;
+  const apiKey = config?.apiKey;
+
+  const ai = params.vertexai_project
+    ? new GoogleGenAI({
+        vertexai: true,
+        project: params.vertexai_project,
+        location: params.vertexai_location ?? "us-central1",
+      })
+    : (() => {
+        if (!apiKey) {
+          throw new Error("Google GenAI API key is required (GEMINI_API_KEY)", {
+            cause: apiKeyMissingError("imageGenAIAgent", imageAction, "GEMINI_API_KEY"),
+          });
+        }
+        return new GoogleGenAI({ apiKey });
+      })();
+
+  if (model === "gemini-2.5-flash-image" || model === "gemini-3.1-flash-image-preview" || model === "gemini-3-pro-image-preview") {
+    const contentParams = (() => {
+      const contents = getGeminiContents(prompt, referenceImages);
+      return {
+        model,
+        contents,
+        config: {
+          imageConfig: {
+            aspectRatio: getAspectRatio(params.canvasSize, PRO_ASPECT_RATIOS),
+          },
+        },
+      };
+    })();
+    const res = await resultify(() => ai.models.generateContent(contentParams));
+    if (res.ok) {
+      return geminiFlashResult(res.value);
+    }
+    return errorProcess(res.error);
+  }
+  // other case,
+  const generateParams = {
+    model,
+    prompt,
+    config: {
+      numberOfImages: 1, // default is 4!
+      aspectRatio: getAspectRatio(params.canvasSize, ASPECT_RATIOS),
+      personGeneration: PersonGeneration.ALLOW_ALL,
+      // safetyFilterLevel: SafetyFilterLevel.BLOCK_ONLY_HIGH,
+    },
+  };
+  const res = await resultify(() => ai.models.generateImages(generateParams));
+  if (!res.ok) {
+    return errorProcess(res.error);
+  }
+  const response = res.value;
+  if (!response.generatedImages || response.generatedImages.length === 0) {
+    throw new Error("ERROR: generateImage returned no generated images", {
+      cause: agentInvalidResponseError("imageGenAIAgent", imageAction, imageFileTarget),
+    });
+  }
+  const image = response.generatedImages[0].image;
+  if (image && image.imageBytes) {
+    return { buffer: Buffer.from(image.imageBytes, "base64") };
+  }
+  throw new Error("ERROR: generateImage returned no image bytes", {
+    cause: agentInvalidResponseError("imageGenAIAgent", imageAction, imageFileTarget),
+  });
+};
+
+const imageGenAIAgentInfo: AgentFunctionInfo = {
+  name: "imageGenAIAgent",
+  agent: imageGenAIAgent,
+  mock: imageGenAIAgent,
+  samples: [],
+  description: "Google Image agent",
+  category: ["image"],
+  author: "Receptron Team",
+  repository: "https://github.com/receptron/mulmocast-cli/",
+  license: "MIT",
+  environmentVariables: [],
+};
+
+export default imageGenAIAgentInfo;

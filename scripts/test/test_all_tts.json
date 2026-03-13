@@ -1,0 +1,83 @@
+{
+  "$mulmocast": {
+    "version": "1.1"
+  },
+  "lang": "ja",
+  "title": "All TTS Providers Test",
+  "speechParams": {
+    "speakers": {
+      "OpenAI": {
+        "provider": "openai",
+        "voiceId": "shimmer"
+      },
+      "Gemini": {
+        "provider": "gemini",
+        "voiceId": "Kore"
+      },
+      "Google": {
+        "provider": "google",
+        "voiceId": "ja-JP-Standard-A"
+      },
+      "ElevenLabs": {
+        "provider": "elevenlabs",
+        "voiceId": "3JDquces8E8bkmvbh6Bc"
+      },
+      "Kotodama": {
+        "provider": "kotodama",
+        "voiceId": "Poporo"
+      }
+    }
+  },
+  "beats": [
+    {
+      "speaker": "OpenAI",
+      "text": "こんにちは、テストです。オープンエーアイ",
+      "image": {
+        "type": "textSlide",
+        "slide": {
+          "title": "OpenAI TTS"
+        }
+      }
+    },
+    {
+      "speaker": "Gemini",
+      "text": "こんにちは、テストです。ジェミニです。",
+      "image": {
+        "type": "textSlide",
+        "slide": {
+          "title": "Gemini TTS"
+        }
+      }
+    },
+    {
+      "speaker": "Google",
+      "text": "こんにちは、テストです。グーグー",
+      "image": {
+        "type": "textSlide",
+        "slide": {
+          "title": "Google TTS"
+        }
+      }
+    },
+    {
+      "speaker": "ElevenLabs",
+      "text": "こんにちは、テストです。イレブンラボ",
+      "image": {
+        "type": "textSlide",
+        "slide": {
+          "title": "ElevenLabs TTS"
+        }
+      }
+    },
+    {
+      "speaker": "Kotodama",
+      "text": "こんにちは、テストです。コトダマ",
+      "image": {
+        "type": "textSlide",
+        "slide": {
+          "title": "Kotodama TTS"
+        }
+      }
+    }
+  ]
+}

@@ -1,9 +1,10 @@
 {
   "$mulmocast": {
-    "version": "1.0",
+    "version": "1.1",
     "credit": "closing"
   },
   "title": "[TITLE: Brief, engaging title for the topic]",
+  "lang": "en",
   "beats": [
     {
       "imagePrompt": "[IMAGE_PROMPT: A prompt for the image to be generated for this beat.]"

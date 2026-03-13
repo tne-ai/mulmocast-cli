@@ -1,3 +1,6 @@
+// node & browser
+import type { LANG, LocalizedText } from "../types/index.js";
+
 // split ja
 export function splitIntoSentencesJa(paragraph: string, divider: string, minimum: number): string[] {
   const sentences = paragraph
@@ -22,7 +25,7 @@ export const recursiveSplitJa = (text: string) => {
   return delimiters
     .reduce<string[]>(
       (textData, delimiter) => {
-        return textData.map((text) => splitIntoSentencesJa(text, delimiter, 7)).flat(1);
+        return textData.map((textInner) => splitIntoSentencesJa(textInner, delimiter, 7)).flat(1);
       },
       [text],
     )
@@ -36,14 +39,16 @@ interface Replacement {
   to: string;
 }
 
-export function replacePairsJa(str: string, replacements: Replacement[]): string {
-  replacements.forEach(({ from, to }) => {
-    // Escape any special regex characters in the 'from' string.
-    const escapedFrom = from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex = new RegExp(escapedFrom, "g");
-    str = str.replace(regex, to);
-  });
-  return str;
+export function replacePairsJa(replacements: Replacement[]) {
+  return (str: string) => {
+    return replacements.reduce((tmp, current) => {
+      const { from, to } = current;
+      // Escape any special regex characters in the 'from' string.
+      const escapedFrom = from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(escapedFrom, "g");
+      return tmp.replace(regex, to);
+    }, str);
+  };
 }
 
 export const replacementsJa: Replacement[] = [
@@ -57,6 +62,7 @@ export const replacementsJa: Replacement[] = [
   { from: "Groq", to: "グロック" },
   { from: "TSMC", to: "ティーエスエムシー" },
   { from: "NVIDIA", to: "エヌビディア" },
+  { from: "PER", to: "ピーイーアール" },
   { from: "1つ", to: "ひとつ" },
   { from: "2つ", to: "ふたつ" },
   { from: "3つ", to: "みっつ" },
@@ -64,4 +70,19 @@ export const replacementsJa: Replacement[] = [
   { from: "5つ", to: "いつつ" },
   { from: "危険な面", to: "危険なめん" },
   { from: "その通り！", to: "その通り。" },
+  { from: "%", to: "パーセント" },
+  { from: "IPO", to: "アイピーオー" },
 ];
+
+export const splitText = (namedInputs: { localizedText: LocalizedText; targetLang: LANG }) => {
+  const { localizedText, targetLang } = namedInputs;
+  // Cache
+  if (localizedText.texts) {
+    return localizedText.texts;
+  }
+  if (targetLang === "ja") {
+    return recursiveSplitJa(localizedText.text);
+  }
+  // not split
+  return [localizedText.text];
+};

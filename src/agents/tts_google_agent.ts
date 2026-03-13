@@ -1,12 +1,23 @@
 import { GraphAILogger } from "graphai";
 import type { AgentFunction, AgentFunctionInfo } from "graphai";
 import * as textToSpeech from "@google-cloud/text-to-speech";
+import { agentGenerationError, audioAction, audioFileTarget } from "../utils/error_cause.js";
+
+import type { GoogleTTSAgentParams, AgentBufferResult, AgentTextInputs, AgentErrorResult } from "../types/agent.js";
 
 const client = new textToSpeech.TextToSpeechClient();
 
-export const ttsGoogleAgent: AgentFunction = async ({ namedInputs, params }) => {
+const getPrompt = (text: string, instructions?: string) => {
+  if (instructions) {
+    return `### DIRECTOR'S NOTES\n${instructions}\n\n#### TRANSCRIPT\n${text}`;
+  }
+  return text;
+};
+
+export const ttsGoogleAgent: AgentFunction<GoogleTTSAgentParams, AgentBufferResult | AgentErrorResult, AgentTextInputs> = async ({ namedInputs, params }) => {
   const { text } = namedInputs;
-  const { voice, suppressError, speed } = params;
+  const { voice, suppressError, speed, model, instructions } = params;
+  const useGeminiPrompt = Boolean(model && instructions);
 
   // Construct the voice request
   const voiceParams: textToSpeech.protos.google.cloud.texttospeech.v1.IVoiceSelectionParams = {
@@ -18,9 +29,16 @@ export const ttsGoogleAgent: AgentFunction = async ({ namedInputs, params }) => 
     voiceParams.name = voice;
   }
 
+  if (model) {
+    voiceParams.modelName = model;
+  }
+
   // Construct the request
   const request: textToSpeech.protos.google.cloud.texttospeech.v1.ISynthesizeSpeechRequest = {
-    input: { text: text },
+    input: {
+      text,
+      ...(useGeminiPrompt ? { prompt: getPrompt(text, instructions) } : {}),
+    },
     voice: voiceParams,
     audioConfig: {
       audioEncoding: "MP3",
@@ -30,7 +48,7 @@ export const ttsGoogleAgent: AgentFunction = async ({ namedInputs, params }) => 
   try {
     // Call the Text-to-Speech API
     const [response] = await client.synthesizeSpeech(request);
-    return { buffer: response.audioContent };
+    return { buffer: response.audioContent as Buffer };
   } catch (e) {
     if (suppressError) {
       return {
@@ -38,7 +56,9 @@ export const ttsGoogleAgent: AgentFunction = async ({ namedInputs, params }) => 
       };
     }
     GraphAILogger.info(e);
-    throw new Error("TTS Google Error");
+    throw new Error("TTS Google Error", {
+      cause: agentGenerationError("ttsGoogleAgent", audioAction, audioFileTarget),
+    });
   }
 };
 
@@ -52,7 +72,7 @@ const ttsGoogleAgentInfo: AgentFunctionInfo = {
   author: "Receptron Team",
   repository: "https://github.com/receptron/mulmocast-cli/",
   license: "MIT",
-  environmentVariables: ["OPENAI_API_KEY"],
+  environmentVariables: ["GEMINI_API_KEY"],
 };
 
 export default ttsGoogleAgentInfo;

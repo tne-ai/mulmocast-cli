@@ -1,4 +1,4 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import { GraphAILogger, GraphAI } from "graphai";
 import { textInputAgent } from "@graphai/input_agents";
 
@@ -17,9 +17,11 @@ import { browserlessCacheGenerator } from "../utils/filters.js";
 import { mulmoScriptSchema, ScriptingParams } from "../types/index.js";
 import { browserlessAgent } from "@graphai/browserless_agent";
 import validateSchemaAgent from "../agents/validate_schema_agent.js";
-import { llmPair } from "../utils/utils.js";
+import { llmPair, settings2GraphAIConfig } from "../utils/utils.js";
 import { interactiveClarificationPrompt, prefixPrompt } from "../utils/prompt.js";
 // import { cliLoadingPlugin } from "../utils/plugins.js";
+
+dotenv.config({ quiet: true });
 
 const vanillaAgents = agents.default ?? agents;
 
@@ -246,10 +248,11 @@ export const createMulmoScriptInteractively = async ({ outDirPath, cacheDirPath,
     },
   ];
 
+  const config = settings2GraphAIConfig(undefined, process.env);
   const graph = new GraphAI(
     graphData,
     { ...vanillaAgents, anthropicAgent, geminiAgent, groqAgent, openAIAgent, textInputAgent, fileWriteAgent, validateSchemaAgent },
-    { agentFilters },
+    { agentFilters, config },
   );
 
   const prompt = readTemplatePrompt(templateName);

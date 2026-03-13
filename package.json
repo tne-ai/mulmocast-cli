@@ -1,27 +1,47 @@
 {
   "name": "mulmocast",
-  "version": "0.0.22",
+  "version": "2.4.9",
   "description": "",
   "type": "module",
-  "main": "lib/index.js",
+  "main": "lib/index.node.js",
   "exports": {
     ".": {
-      "types": "./lib/index.d.ts",
-      "default": "./lib/index.js"
+      "types": "./lib/index.node.d.ts",
+      "default": "./lib/index.node.js"
     },
     "./browser": {
       "types": "./lib/index.browser.d.ts",
       "default": "./lib/index.browser.js"
+    },
+    "./data": {
+      "default": "./lib/data/index.js"
+    },
+    "./assets/*": "./assets/*",
+    "./scripts/*": "./scripts/*",
+    "./tools/complete_script": {
+      "types": "./lib/tools/complete_script.d.ts",
+      "default": "./lib/tools/complete_script.js"
     }
   },
+  "resolutions": {
+    "minimatch": "^10.2.4",
+    "axios": ">=1.13.5"
+  },
   "bin": {
-    "mulmo": "lib/cli/bin.js"
+    "mulmo": "lib/cli/bin.js",
+    "mulmocast": "lib/cli/bin.js",
+    "mulmo-mcp": "lib/mcp/server.js"
   },
   "files": [
     "./lib",
     "./scripts/templates",
+    "./scripts/test",
     "./assets/audio/silent60sec.mp3",
     "./assets/html/",
+    "./assets/images/",
+    "./assets/schemas/",
+    "./assets/slide_themes/",
+    "./assets/styles/",
     "./assets/templates/"
   ],
   "directories": {
@@ -36,7 +56,7 @@
     "preprocess": "npx tsx ./src/cli/bin.ts preprocess",
     "pdf": "npx tsx ./src/cli/bin.ts pdf",
     "test": "rm -f scratchpad/test*.* && npx tsx ./src/audio.ts scripts/test/test.json && npx tsx ./src/images.ts scripts/test/test.json && npx tsx ./src/movie.ts scripts/test/test.json",
-    "ci_test": "NODE_ENV=test tsx --test ./test/*/test_*.ts",
+    "ci_test": "cross-env NODE_ENV=test tsx --test --experimental-test-coverage ./test/*/test_*.ts",
     "lint": "eslint src test",
     "build": "tsc",
     "build_test": "tsc && git checkout -- lib/*",
@@ -44,13 +64,22 @@
     "scripting": "npx tsx ./src/cli/bin.ts tool scripting",
     "prompt": "npx tsx ./src/cli/bin.ts tool prompt",
     "schema": "npx tsx ./src/cli/bin.ts tool schema",
+    "markdown": "npx tsx ./src/cli/bin.ts markdown",
+    "html": "npx tsx ./src/cli/bin.ts html",
     "story_to_script": "npx tsx ./src/cli/bin.ts tool story_to_script",
+    "whisper": "npx tsx ./src/cli/bin.ts tool whisper",
     "latest": "yarn upgrade-interactive  --latest",
-    "format": "prettier --write '{src,scripts,assets/templates,assets/styles,draft,ideason,scripts_mag2,proto,test,graphai,output,docs/scripts}/**/*.{ts,json,yaml}'",
+    "format": "prettier --write '{src,scripts,assets/templates,assets/styles,draft,ideason,scripts_mag2,proto,test,batch,graphai,output,docs/scripts}/**/*.{ts,json,yaml}'",
     "deep_research": "npx tsx ./src/tools/deep_research.ts",
-    "fake_data": "npx tsx test/fake/sample.ts"
+    "template": "npx tsx batch/template2tsobject.ts && yarn run format",
+    "mcp_server": "npx tsx ./src/mcp/server.ts",
+    "voice": "npx tsx batch/openai_sample.ts && yarn run movie  scripts/samples/openai_voice.json",
+    "generate_action_docs": "npx tsx ./automation/generate_actions_docs/generate_action_docs.ts"
   },
-  "repository": "git+ssh://git@github.com/receptron/mulmocast-cli.git",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/receptron/mulmocast-cli.git"
+  },
   "author": "snakajima",
   "license": "AGPL-3.0-only",
   "bugs": {
@@ -58,48 +87,56 @@
   },
   "homepage": "https://github.com/receptron/mulmocast-cli#readme",
   "dependencies": {
-    "@google-cloud/text-to-speech": "^6.1.0",
-    "@graphai/anthropic_agent": "^2.0.2",
-    "@graphai/browserless_agent": "^2.0.1",
-    "@graphai/gemini_agent": "^2.0.0",
-    "@graphai/groq_agent": "^2.0.0",
-    "@graphai/input_agents": "^1.0.1",
-    "@graphai/openai_agent": "^2.0.3",
-    "@graphai/stream_agent_filter": "^2.0.2",
-    "@graphai/vanilla": "^2.0.4",
-    "@graphai/vanilla_node_agents": "^2.0.1",
-    "@tavily/core": "^0.5.7",
-    "canvas": "^3.1.0",
-    "clipboardy": "^4.0.0",
-    "dotenv": "^16.4.7",
+    "@google-cloud/text-to-speech": "^6.4.0",
+    "@google/genai": "^1.44.0",
+    "@graphai/anthropic_agent": "^2.0.12",
+    "@graphai/browserless_agent": "^2.0.2",
+    "@graphai/gemini_agent": "^2.0.5",
+    "@graphai/groq_agent": "^2.0.2",
+    "@graphai/input_agents": "^1.0.2",
+    "@graphai/openai_agent": "^2.0.9",
+    "@graphai/stream_agent_filter": "^2.0.3",
+    "@graphai/vanilla": "^2.0.12",
+    "@graphai/vanilla_node_agents": "^2.0.4",
+    "@inquirer/input": "^5.0.8",
+    "@inquirer/select": "^5.1.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@mozilla/readability": "^0.6.0",
+    "@tavily/core": "^0.5.11",
+    "archiver": "^7.0.1",
+    "clipboardy": "^5.3.1",
+    "dotenv": "^17.3.1",
     "fluent-ffmpeg": "^2.1.3",
-    "google-auth-library": "^9.15.1",
-    "graphai": "^2.0.8",
-    "inquirer": "^12.6.1",
-    "marked": "^15.0.12",
-    "ora": "^8.2.0",
-    "puppeteer": "^24.10.2",
-    "yaml": "^2.8.0",
-    "yargs": "^17.7.2",
-    "zod": "^3.25.67",
-    "zod-to-json-schema": "^3.24.5"
+    "graphai": "^2.0.16",
+    "jsdom": "^28.1.0",
+    "marked": "^17.0.4",
+    "mulmocast-vision": "^1.0.8",
+    "ora": "^9.3.0",
+    "puppeteer": "^24.39.0",
+    "replicate": "^1.4.0",
+    "yaml": "^2.8.2",
+    "yargs": "^18.0.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@anatine/zod-mock": "^3.14.0",
-    "@faker-js/faker": "^9.8.0",
-    "@receptron/test_utils": "^2.0.0",
-    "@types/fluent-ffmpeg": "^2.1.26",
-    "@types/yargs": "^17.0.33",
-    "eslint": "^9.29.0",
-    "eslint-config-prettier": "^10.1.5",
-    "eslint-plugin-prettier": "^5.5.0",
-    "prettier": "^3.3.3",
-    "ts-node": "^10.9.2",
-    "tsx": "^4.20.3",
-    "typescript": "^5.7.3",
-    "typescript-eslint": "^8.34.1"
+    "@eslint/js": "^10.0.1",
+    "@receptron/test_utils": "^2.0.3",
+    "@types/archiver": "^7.0.0",
+    "@types/fluent-ffmpeg": "^2.1.28",
+    "@types/jsdom": "^28.0.0",
+    "@types/yargs": "^17.0.35",
+    "cross-env": "^10.1.0",
+    "eslint": "^10.0.3",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
+    "eslint-plugin-sonarjs": "^4.0.2",
+    "globals": "^17.4.0",
+    "prettier": "^3.8.1",
+    "tsx": "^4.21.0",
+    "typescript": "6.0.0-beta",
+    "typescript-eslint": "^8.57.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   }
 }

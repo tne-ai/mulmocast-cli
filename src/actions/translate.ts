@@ -1,38 +1,191 @@
-import "dotenv/config";
-import { GraphAI, assert } from "graphai";
-import type { GraphData, AgentFilterFunction, DefaultParamsType, DefaultResultData, CallbackFunction } from "graphai";
+import dotenv from "dotenv";
+import fs from "fs";
+
+import { GraphAI, assert, isNull, GraphAILogger } from "graphai";
+import type { GraphData, AgentFilterFunction, DefaultParamsType, DefaultResultData } from "graphai";
 import * as agents from "@graphai/vanilla";
 import { openAIAgent } from "@graphai/openai_agent";
 import { fileWriteAgent } from "@graphai/vanilla_node_agents";
 
-import { recursiveSplitJa, replacementsJa, replacePairsJa } from "../utils/string.js";
-import { LANG, LocalizedText, MulmoStudioContext, MulmoBeat, MulmoStudioMultiLingualData, MulmoStudioMultiLingual } from "../types/index.js";
-import { getOutputMultilingualFilePath, mkdir, writingMessage } from "../utils/file.js";
+import { splitText } from "../utils/string.js";
+import { settings2GraphAIConfig, beatId, multiLingualObjectToArray } from "../utils/utils.js";
+import { getMultiLingual } from "../utils/context.js";
+import { currentMulmoScriptVersion } from "../types/const.js";
+import { translateApiKeyMissingError, hasCause, agentGenerationError, translateAction, multiLingualFileTarget } from "../utils/error_cause.js";
+import type {
+  LANG,
+  MulmoStudioContext,
+  MulmoBeat,
+  MulmoStudioMultiLingualData,
+  MulmoStudioMultiLingual,
+  MultiLingualTexts,
+  PublicAPIArgs,
+} from "../types/index.js";
+import { getOutputMultilingualFilePath, mkdir, writingMessage, hashSHA256 } from "../utils/file.js";
 import { translateSystemPrompt, translatePrompts } from "../utils/prompt.js";
 import { MulmoStudioContextMethods } from "../methods/mulmo_studio_context.js";
 
 const vanillaAgents = agents.default ?? agents;
 
-const translateGraph: GraphData = {
+dotenv.config({ quiet: true });
+
+// 1. translateGraph / map each beats.
+// 2. beatGraph / map each target lang.
+// 3. translateTextGraph / translate text.
+
+export const translateTextGraph = {
+  version: 0.5,
+  nodes: {
+    localizedText: {
+      inputs: {
+        targetLang: ":targetLang", // for cache
+        beat: ":beat", // for cache
+        multiLingual: ":multiLingual", // for cache
+        lang: ":lang", // for cache
+        beatIndex: ":beatIndex", // for cache (state)
+        mulmoContext: ":context", // for cache (state)
+        system: translateSystemPrompt,
+        prompt: translatePrompts,
+      },
+      passThrough: {
+        lang: ":targetLang",
+      },
+      output: {
+        text: ".text",
+      },
+      // return { lang, text } <- localizedText
+      agent: "openAIAgent",
+    },
+    splitText: {
+      agent: splitText,
+      inputs: {
+        targetLang: ":targetLang",
+        localizedText: ":localizedText",
+      },
+    },
+    textTranslateResult: {
+      isResult: true,
+      agent: "copyAgent",
+      inputs: {
+        lang: ":targetLang",
+        text: ":localizedText.text",
+        texts: ":splitText",
+        ttsTexts: ":splitText",
+        cacheKey: ":multiLingual.cacheKey",
+      },
+    },
+  },
+};
+
+const beatGraph = {
+  version: 0.5,
+  nodes: {
+    targetLangs: {},
+    context: {},
+    beat: {},
+    __mapIndex: {},
+    // for cache
+    multiLingual: {
+      agent: (namedInputs: { text?: string; multiLinguals?: Record<string, MulmoStudioMultiLingualData>; beatIndex: number }) => {
+        const { multiLinguals, beatIndex, text } = namedInputs;
+        const cacheKey = hashSHA256(text ?? "");
+        const multiLingual = multiLinguals?.[beatIndex];
+        if (!multiLingual) {
+          return { cacheKey, multiLingualTexts: {} };
+        }
+        return {
+          multiLingualTexts: Object.keys(multiLingual.multiLingualTexts).reduce((tmp: MultiLingualTexts, lang) => {
+            if (multiLingual.multiLingualTexts[lang].cacheKey === cacheKey) {
+              tmp[lang] = multiLingual.multiLingualTexts[lang];
+            }
+            return tmp;
+          }, {}),
+          cacheKey,
+        };
+      },
+      inputs: {
+        text: ":beat.text",
+        beatIndex: ":__mapIndex",
+        multiLinguals: ":context.multiLingual",
+      },
+    },
+    preprocessMultiLingual: {
+      agent: "mapAgent",
+      inputs: {
+        beat: ":beat",
+        multiLingual: ":multiLingual",
+        rows: ":targetLangs",
+        lang: ":context.studio.script.lang",
+        context: ":context",
+        beatIndex: ":__mapIndex",
+      },
+      params: {
+        compositeResult: true,
+        rowKey: "targetLang",
+      },
+      graph: translateTextGraph,
+    },
+    mergeLocalizedText: {
+      // console: { after: true},
+      agent: "arrayToObjectAgent",
+      inputs: {
+        items: ":preprocessMultiLingual.textTranslateResult",
+      },
+      params: {
+        key: "lang",
+      },
+    },
+    multiLingualTexts: {
+      agent: "mergeObjectAgent",
+      inputs: {
+        items: [":multiLingual.multiLingualTexts", ":mergeLocalizedText"],
+      },
+    },
+    mergeMultiLingualData: {
+      isResult: true,
+      // console: { after: true},
+      agent: "mergeObjectAgent",
+      inputs: {
+        items: [":multiLingual", { multiLingualTexts: ":multiLingualTexts" }],
+      },
+    },
+  },
+};
+
+export const translate_graph_data: GraphData = {
   version: 0.5,
   nodes: {
     context: {},
-    defaultLang: {},
     outDirPath: {},
     outputMultilingualFilePath: {},
-    lang: {
-      agent: "stringUpdateTextAgent",
-      inputs: {
-        newText: ":context.studio.script.lang",
-        oldText: ":defaultLang",
-      },
-    },
-    targetLangs: {}, // TODO
+    targetLangs: {},
     mergeStudioResult: {
       isResult: true,
-      agent: "mergeObjectAgent",
+      agent: (namedInputs) => {
+        const { multiLingual, beats, originalMultiLingual } = namedInputs;
+        const multiLingualObject = beats.reduce((tmp: MulmoStudioMultiLingual, beat: MulmoBeat, beatIndex: number) => {
+          const key = beatId(beat?.id, beatIndex);
+          const originalData = originalMultiLingual[beatIndex]?.multiLingualTexts ?? {};
+          const { multiLingualTexts, cacheKey } = multiLingual[beatIndex];
+          tmp[key] = {
+            cacheKey,
+            multiLingualTexts: {
+              ...originalData,
+              ...multiLingualTexts,
+            },
+          };
+          return tmp;
+        }, {});
+
+        return {
+          version: currentMulmoScriptVersion,
+          multiLingual: multiLingualObject,
+        };
+      },
       inputs: {
-        items: [{ multiLingual: ":beatsMap.mergeMultiLingualData" }],
+        originalMultiLingual: ":context.multiLingual", // original
+        multiLingual: ":beatsMap.mergeMultiLingualData", // update
+        beats: ":context.studio.script.beats",
       },
     },
     beatsMap: {
@@ -41,139 +194,18 @@ const translateGraph: GraphData = {
         targetLangs: ":targetLangs",
         context: ":context",
         rows: ":context.studio.script.beats",
-        lang: ":lang",
       },
       params: {
         rowKey: "beat",
         compositeResult: true,
       },
-      graph: {
-        version: 0.5,
-        nodes: {
-          // for cache
-          multiLingual: {
-            agent: (namedInputs: { rows?: MulmoStudioMultiLingualData[]; index: number }) => {
-              return (namedInputs.rows && namedInputs.rows[namedInputs.index]) || {};
-            },
-            inputs: {
-              index: ":__mapIndex",
-              rows: ":context.multiLingual",
-            },
-          },
-          preprocessMultiLingual: {
-            agent: "mapAgent",
-            inputs: {
-              beat: ":beat",
-              multiLingual: ":multiLingual",
-              rows: ":targetLangs",
-              lang: ":lang.text",
-              context: ":context",
-              beatIndex: ":__mapIndex",
-            },
-            params: {
-              compositeResult: true,
-              rowKey: "targetLang",
-            },
-            graph: {
-              version: 0.5,
-              nodes: {
-                localizedTexts: {
-                  inputs: {
-                    targetLang: ":targetLang", // for cache
-                    beat: ":beat", // for cache
-                    multiLingual: ":multiLingual", // for cache
-                    lang: ":lang", // for cache
-                    beatIndex: ":beatIndex", // for cache
-                    mulmoContext: ":context", // for cache
-                    system: translateSystemPrompt,
-                    prompt: translatePrompts,
-                  },
-                  passThrough: {
-                    lang: ":targetLang",
-                  },
-                  output: {
-                    text: ".text",
-                  },
-                  // return { lang, text } <- localizedText
-                  agent: "openAIAgent",
-                },
-                splitText: {
-                  agent: (namedInputs: { localizedText: LocalizedText; targetLang: LANG }) => {
-                    const { localizedText, targetLang } = namedInputs;
-                    // Cache
-                    if (localizedText.texts) {
-                      return localizedText;
-                    }
-                    if (targetLang === "ja") {
-                      return {
-                        ...localizedText,
-                        texts: recursiveSplitJa(localizedText.text),
-                      };
-                    }
-                    // not split
-                    return {
-                      ...localizedText,
-                      texts: [localizedText.text],
-                    };
-                    // return { lang, text, texts }
-                  },
-                  inputs: {
-                    targetLang: ":targetLang",
-                    localizedText: ":localizedTexts",
-                  },
-                },
-                ttsTexts: {
-                  agent: (namedInputs: { localizedText: LocalizedText; targetLang: LANG }) => {
-                    const { localizedText, targetLang } = namedInputs;
-                    // cache
-                    if (localizedText.ttsTexts) {
-                      return localizedText;
-                    }
-                    if (targetLang === "ja") {
-                      return {
-                        ...localizedText,
-                        ttsTexts: localizedText?.texts?.map((text: string) => replacePairsJa(text, replacementsJa)),
-                      };
-                    }
-                    return {
-                      ...localizedText,
-                      ttsTexts: localizedText.texts,
-                    };
-                  },
-                  inputs: {
-                    targetLang: ":targetLang",
-                    localizedText: ":splitText",
-                  },
-                  isResult: true,
-                },
-              },
-            },
-          },
-          mergeLocalizedText: {
-            agent: "arrayToObjectAgent",
-            inputs: {
-              items: ":preprocessMultiLingual.ttsTexts",
-            },
-            params: {
-              key: "lang",
-            },
-          },
-          mergeMultiLingualData: {
-            isResult: true,
-            agent: "mergeObjectAgent",
-            inputs: {
-              items: [":multiLingual", { multiLingualTexts: ":mergeLocalizedText" }],
-            },
-          },
-        },
-      },
+      graph: beatGraph,
     },
     writeOutput: {
-      // console: { before: true },
       agent: "fileWriteAgent",
       inputs: {
         file: ":outputMultilingualFilePath",
-        text: ":mergeStudioResult.multiLingual.toJSON()",
+        text: ":mergeStudioResult.toJSON()",
       },
     },
   },
@@ -191,51 +223,105 @@ const localizedTextCacheAgentFilter: AgentFilterFunction<
     return { text: "" };
   }
 
-  // The original text is unchanged and the target language text is present
-  if (
-    multiLingual.multiLingualTexts &&
-    multiLingual.multiLingualTexts[lang] &&
-    multiLingual.multiLingualTexts[lang].text === beat.text &&
-    multiLingual.multiLingualTexts[targetLang] &&
-    multiLingual.multiLingualTexts[targetLang].text
-  ) {
-    return { text: multiLingual.multiLingualTexts[targetLang].text };
-  }
   // same language
   if (targetLang === lang) {
+    GraphAILogger.log(`translate: ${beatIndex} same lang`);
     return { text: beat.text };
   }
+
+  // The original text is unchanged and the target language text is present
+  if (multiLingual.cacheKey === multiLingual.multiLingualTexts[targetLang]?.cacheKey) {
+    GraphAILogger.log(`translate: ${beatIndex} cache hit`);
+    return { text: multiLingual.multiLingualTexts[targetLang].text };
+  }
   try {
-    MulmoStudioContextMethods.setBeatSessionState(mulmoContext, "multiLingual", beatIndex, true);
+    MulmoStudioContextMethods.setBeatSessionState(mulmoContext, "multiLingual", beatIndex, beat.id, true);
+    GraphAILogger.log(`translate: ${beatIndex} run`);
     return await next(context);
   } finally {
-    MulmoStudioContextMethods.setBeatSessionState(mulmoContext, "multiLingual", beatIndex, false);
+    MulmoStudioContextMethods.setBeatSessionState(mulmoContext, "multiLingual", beatIndex, beat.id, false);
   }
 };
 const agentFilters = [
   {
     name: "localizedTextCacheAgentFilter",
     agent: localizedTextCacheAgentFilter as AgentFilterFunction,
-    nodeIds: ["localizedTexts"],
+    nodeIds: ["localizedText"],
   },
 ];
 
-const defaultLang = "en";
-const targetLangs = ["ja", "en"];
+export const getOutputMultilingualFilePathAndMkdir = (context: MulmoStudioContext) => {
+  const fileName = MulmoStudioContextMethods.getFileName(context);
+  const outDirPath = MulmoStudioContextMethods.getOutDirPath(context);
+  const outputMultilingualFilePath = getOutputMultilingualFilePath(outDirPath, fileName);
+  mkdir(outDirPath);
+  return { outputMultilingualFilePath, outDirPath };
+};
 
-export const translate = async (context: MulmoStudioContext, callbacks?: CallbackFunction[]) => {
+export const translateBeat = async (index: number, context: MulmoStudioContext, targetLangs: string[], args?: PublicAPIArgs) => {
+  const { settings, callbacks } = args ?? {};
+
+  // Validate inputs
+  if (index < 0 || index >= context.studio.script.beats.length) {
+    throw new Error(`Invalid beat index: ${index}. Must be between 0 and ${context.studio.script.beats.length - 1}`);
+  }
+  if (!targetLangs || targetLangs.length === 0) {
+    throw new Error("targetLangs must be a non-empty array");
+  }
+  try {
+    const { outputMultilingualFilePath } = getOutputMultilingualFilePathAndMkdir(context);
+
+    const config = settings2GraphAIConfig(settings, process.env);
+    assert(!!config?.openAIAgent?.apiKey, "The OPENAI_API_KEY environment variable is missing or empty", false, translateApiKeyMissingError());
+
+    const graph = new GraphAI(beatGraph, { ...vanillaAgents, fileWriteAgent, openAIAgent }, { agentFilters, config });
+    graph.injectValue("context", context);
+    graph.injectValue("targetLangs", targetLangs);
+    graph.injectValue("beat", context.studio.script.beats[index]);
+    graph.injectValue("__mapIndex", index);
+    if (callbacks) {
+      callbacks.forEach((callback) => {
+        graph.registerCallback(callback);
+      });
+    }
+    const results = await graph.run<MulmoStudioMultiLingualData>();
+
+    const multiLingual = getMultiLingual(outputMultilingualFilePath, context.studio.beats);
+    const key = beatId(context.studio.script.beats[index]?.id, index);
+    multiLingual[key] = results.mergeMultiLingualData!;
+    const data = {
+      version: currentMulmoScriptVersion,
+      multiLingual,
+    };
+    fs.writeFileSync(outputMultilingualFilePath, JSON.stringify(data, null, 2), "utf8");
+    writingMessage(outputMultilingualFilePath);
+  } catch (error) {
+    GraphAILogger.log(error);
+    if (hasCause(error) && error.cause) {
+      throw error;
+    }
+    throw new Error("Failed to translate", {
+      cause: agentGenerationError("translateBeat", translateAction, multiLingualFileTarget),
+    });
+  }
+};
+
+export const translate = async (context: MulmoStudioContext, args?: PublicAPIArgs & { targetLangs?: string[] }) => {
+  const { settings, callbacks } = args ?? {};
   try {
     MulmoStudioContextMethods.setSessionState(context, "multiLingual", true);
-    const fileName = MulmoStudioContextMethods.getFileName(context);
-    const outDirPath = MulmoStudioContextMethods.getOutDirPath(context);
-    const outputMultilingualFilePath = getOutputMultilingualFilePath(outDirPath, fileName);
-    mkdir(outDirPath);
+    const { outputMultilingualFilePath, outDirPath } = getOutputMultilingualFilePathAndMkdir(context);
 
-    assert(!!process.env.OPENAI_API_KEY, "The OPENAI_API_KEY environment variable is missing or empty");
+    const targetLangs = args?.targetLangs
+      ? args?.targetLangs
+      : [...new Set([context.lang, context.studio.script.captionParams?.lang].filter((x) => !isNull(x)))];
+    const config = settings2GraphAIConfig(settings, process.env);
 
-    const graph = new GraphAI(translateGraph, { ...vanillaAgents, fileWriteAgent, openAIAgent }, { agentFilters });
+    assert(!!config?.openAIAgent?.apiKey, "The OPENAI_API_KEY environment variable is missing or empty", false, translateApiKeyMissingError());
+
+    const graph = new GraphAI(translate_graph_data, { ...vanillaAgents, fileWriteAgent, openAIAgent }, { agentFilters, config });
+
     graph.injectValue("context", context);
-    graph.injectValue("defaultLang", defaultLang);
     graph.injectValue("targetLangs", targetLangs);
     graph.injectValue("outDirPath", outDirPath);
     graph.injectValue("outputMultilingualFilePath", outputMultilingualFilePath);
@@ -247,9 +333,17 @@ export const translate = async (context: MulmoStudioContext, callbacks?: Callbac
     const results = await graph.run<{ multiLingual: MulmoStudioMultiLingual }>();
     writingMessage(outputMultilingualFilePath);
     if (results.mergeStudioResult) {
-      context.multiLingual = results.mergeStudioResult.multiLingual;
+      context.multiLingual = multiLingualObjectToArray(results?.mergeStudioResult?.multiLingual, context.studio.script.beats);
     }
-  } finally {
-    MulmoStudioContextMethods.setSessionState(context, "multiLingual", false);
+    MulmoStudioContextMethods.setSessionState(context, "multiLingual", false, true);
+  } catch (error) {
+    MulmoStudioContextMethods.setSessionState(context, "multiLingual", false, false);
+    if (hasCause(error) && error.cause) {
+      throw error;
+    }
+    throw new Error("Failed to translate", {
+      cause: agentGenerationError("translateBeat", translateAction, multiLingualFileTarget),
+    });
   }
+  return context;
 };

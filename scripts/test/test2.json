@@ -1,6 +1,6 @@
 {
   "$mulmocast": {
-    "version": "1.0",
+    "version": "1.1",
     "credit": "closing"
   },
   "title": "AIの進化と私たちの未来 - サム・アルトマン氏の3つの観察",
@@ -17,25 +17,27 @@
     "style": "<style>monochrome"
   },
   "speechParams": {
-    "provider": "nijivoice",
     "speakers": {
       "Announcer": {
         "displayName": {
-          "ja": "春玲"
+          "ja": "千草朋香"
         },
-        "voiceId": "afd7df65-0fdc-4d31-ae8b-a29f0f5eed62"
+        "provider": "gemini",
+        "voiceId": "Aoede"
       },
       "Student": {
         "displayName": {
           "ja": "太郎"
         },
-        "voiceId": "a7619e48-bf6a-4f9f-843f-40485651257f"
+        "provider": "gemini",
+        "voiceId": "Puck"
       },
       "Teacher": {
         "displayName": {
           "ja": "山田先生"
         },
-        "voiceId": "bc06c63f-fef6-43b6-92f7-67f919bd5dae"
+        "provider": "gemini",
+        "voiceId": "Charon"
       }
     }
   },

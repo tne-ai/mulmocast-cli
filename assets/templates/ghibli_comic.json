@@ -1,10 +1,10 @@
 {
-  "title": "Ghibli comic style",
-  "description": "Template for Ghibli-style comic presentation.",
-  "systemPrompt": "Generate a script for a presentation of the given topic. Another AI will generate comic strips for each beat based on the text description of that beat. Mention the reference in one of beats, if it exists. Use the JSON below as a template.",
+  "title": "Ghibli-style comic.",
+  "description": "Ghibli-style comic.",
+  "systemPrompt": "Another AI will generate comic strips for each beat based on the imagePrompt of that beat. Mention the reference in one of beats, if it exists. Use the JSON below as a template.",
   "presentationStyle": {
     "$mulmocast": {
-      "version": "1.0",
+      "version": "1.1",
       "credit": "closing"
     },
     "canvasSize": {

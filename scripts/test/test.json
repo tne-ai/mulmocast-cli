@@ -1,6 +1,6 @@
 {
   "$mulmocast": {
-    "version": "1.0",
+    "version": "1.1",
     "credit": "closing"
   },
   "title": "MASAI: A Modular Future for Software Engineering AI",
@@ -17,28 +17,30 @@
     "style": "<style>monochrome"
   },
   "speechParams": {
-    "provider": "nijivoice",
     "speakers": {
       "Announcer": {
+        "provider": "gemini",
         "displayName": {
           "ja": "アナウンサー"
         },
-        "voiceId": "afd7df65-0fdc-4d31-ae8b-a29f0f5eed62",
+        "voiceId": "Aoede",
         "speechOptions": {
           "speed": 1.666
         }
       },
       "Student": {
+        "provider": "gemini",
         "displayName": {
           "ja": "生徒"
         },
-        "voiceId": "a7619e48-bf6a-4f9f-843f-40485651257f"
+        "voiceId": "Puck"
       },
       "Teacher": {
+        "provider": "gemini",
         "displayName": {
           "ja": "先生"
         },
-        "voiceId": "bc06c63f-fef6-43b6-92f7-67f919bd5dae"
+        "voiceId": "Charon"
       }
     }
   },

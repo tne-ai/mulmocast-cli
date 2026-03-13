@@ -1,8 +1,9 @@
 {
   "$mulmocast": {
-    "version": "1.0",
+    "version": "1.1",
     "credit": "closing"
   },
+  "lang": "en",
   "title": "Testing OpenAI's new Image Generation",
   "description": "Hello",
   "imageParams": {
@@ -23,8 +24,14 @@
     {
       "speaker": "Host",
       "text": "How are you?",
+      "imagePrompt": "A witch in Harajuku"
+    },
+    {
+      "speaker": "Host",
+      "text": "How are you?",
       "imagePrompt": "A witch in Harajuku",
       "imageParams": {
+        "model": "gpt-image-1-mini",
         "style": "Ukiyoe-style"
       }
     }

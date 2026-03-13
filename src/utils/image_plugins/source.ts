@@ -1,19 +1,21 @@
-import { GraphAILogger } from "graphai";
-import { ImageProcessorParams } from "../../types/index.js";
+import { type ImageProcessorParams, type ImageType } from "../../types/index.js";
 import { MulmoMediaSourceMethods } from "../../methods/mulmo_media_source.js";
 
-type ImageType = "image" | "movie";
-
 export const processSource = (imageType: ImageType) => {
+  return async (params: ImageProcessorParams) => {
+    const { beat, context } = params;
+    if (!beat?.image || beat.image.type !== imageType) return;
+
+    return MulmoMediaSourceMethods.imagePluginSource(beat.image.source, context, params.imagePath, imageType);
+  };
+};
+
+export const pathSource = (imageType: ImageType) => {
   return (params: ImageProcessorParams) => {
     const { beat, context } = params;
-    if (!beat || !beat.image || beat.image.type !== imageType) return;
-
-    const path = MulmoMediaSourceMethods.resolve(beat.image.source, context);
-    if (path) {
-      return path;
+    if (!beat?.image || beat.image.type !== imageType) return;
+    if (beat.image?.type == "image" || beat.image?.type == "movie") {
+      return MulmoMediaSourceMethods.imagePluginSourcePath(beat.image.source, context, params.imagePath, imageType);
     }
-    GraphAILogger.error(`Image Plugin unknown ${imageType} source type:`, beat.image);
-    throw new Error(`ERROR: unknown ${imageType} source type`);
   };
 };

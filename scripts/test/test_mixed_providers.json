@@ -1,13 +1,14 @@
 {
   "$mulmocast": {
-    "version": "1.0"
+    "version": "1.1"
   },
+  "lang": "en",
   "title": "Mixed Providers Test",
   "description": "Testing multiple TTS providers for different speakers",
   "speechParams": {
-    "provider": "openai",
     "speakers": {
       "Presenter": {
+        "provider": "openai",
         "voiceId": "shimmer",
         "displayName": {
           "en": "Main Presenter"
@@ -28,8 +29,8 @@
         }
       },
       "Host": {
-        "voiceId": "b9277ce3-ba1c-4f6f-9a65-c05ca102ded0",
-        "provider": "nijivoice",
+        "voiceId": "Kore",
+        "provider": "gemini",
         "displayName": {
           "en": "Japanese Host"
         }
@@ -78,12 +79,12 @@
     },
     {
       "speaker": "Host",
-      "text": "そして私は、日本語音声合成のためのNijivoiceを使用するホストです。",
+      "text": "そして私は、Gemini TTS です。Google's TTS とは別の方法を利用しています。",
       "image": {
         "type": "textSlide",
         "slide": {
           "title": "Mixed Provider Demo",
-          "subtitle": "Nijivoice Speaker (Japanese)"
+          "subtitle": "Gemini Speaker (Japanese)"
         }
       }
     }

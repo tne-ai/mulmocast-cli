@@ -2,6 +2,9 @@ import { GraphAILogger } from "graphai";
 import type { AgentFunction, AgentFunctionInfo } from "graphai";
 import { MulmoStudioContext } from "../types/index.js";
 import { FfmpegContextAddInput, FfmpegContextInit, FfmpegContextGenerateOutput, ffmpegGetMediaDuration } from "../utils/ffmpeg_utils.js";
+import { MulmoStudioContextMethods } from "../methods/mulmo_studio_context.js";
+import { isFile } from "../utils/file.js";
+import { agentGenerationError, agentFileNotExistError, audioAction, audioFileTarget } from "../utils/error_cause.js";
 
 const addBGMAgent: AgentFunction<{ musicFile: string }, string, { voiceFile: string; outputFile: string; context: MulmoStudioContext }> = async ({
   namedInputs,
@@ -10,8 +13,19 @@ const addBGMAgent: AgentFunction<{ musicFile: string }, string, { voiceFile: str
   const { voiceFile, outputFile, context } = namedInputs;
   const { musicFile } = params;
 
-  const speechDuration = await ffmpegGetMediaDuration(voiceFile);
-  const introPadding = context.presentationStyle.audioParams.introPadding;
+  if (!isFile(voiceFile)) {
+    throw new Error(`AddBGMAgent voiceFile not exist: ${voiceFile}`, {
+      cause: agentFileNotExistError("addBGMAgent", audioAction, audioFileTarget, voiceFile),
+    });
+  }
+  if (!musicFile.match(/^http/) && !isFile(musicFile)) {
+    throw new Error(`AddBGMAgent musicFile not exist: ${musicFile}`, {
+      cause: agentFileNotExistError("addBGMAgent", audioAction, audioFileTarget, musicFile),
+    });
+  }
+
+  const { duration: speechDuration } = await ffmpegGetMediaDuration(voiceFile);
+  const introPadding = MulmoStudioContextMethods.getIntroPadding(context);
   const outroPadding = context.presentationStyle.audioParams.outroPadding;
   const totalDuration = speechDuration + introPadding + outroPadding;
   GraphAILogger.log("totalDucation:", speechDuration, totalDuration);
@@ -28,9 +42,16 @@ const addBGMAgent: AgentFunction<{ musicFile: string }, string, { voiceFile: str
   ffmpegContext.filterComplex.push(`[music][voice]amix=inputs=2:duration=longest[mixed]`);
   ffmpegContext.filterComplex.push(`[mixed]atrim=start=0:end=${totalDuration}[trimmed]`);
   ffmpegContext.filterComplex.push(`[trimmed]afade=t=out:st=${totalDuration - outroPadding}:d=${outroPadding}[faded]`);
-  await FfmpegContextGenerateOutput(ffmpegContext, outputFile, ["-map", "[faded]"]);
+  try {
+    await FfmpegContextGenerateOutput(ffmpegContext, outputFile, ["-map", "[faded]"]);
 
-  return outputFile;
+    return outputFile;
+  } catch (e) {
+    GraphAILogger.log(e);
+    throw new Error(`AddBGMAgent ffmpeg run Error`, {
+      cause: agentGenerationError("addBGMAgent", audioAction, audioFileTarget),
+    });
+  }
 };
 const addBGMAgentInfo: AgentFunctionInfo = {
   name: "addBGMAgent",

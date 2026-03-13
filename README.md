@@ -1,5 +1,7 @@
 # MulmoCast: A Multi-Modal Presentation Tool for the AI-Native Era
 
+[![npm version](https://badge.fury.io/js/mulmocast.svg)](https://www.npmjs.com/package/mulmocast)
+
 ## Quick Start Guide
 
 If you want to try our beta version, follow the instruction in the release note below.
@@ -57,7 +59,7 @@ Here is the "Hello World" in MulmoScript.
 ```JSON
 {
   "$mulmocast": {
-    "version": "1.0"
+    "version": "1.1"
   },
   "beats": [
     { "text": "Hello World" }
@@ -82,6 +84,16 @@ brew install ffmpeg
 # Visit https://ffmpeg.org/download.html
 ```
 
+You can also use [`Dockerfile`](./Dockerfile) which helps you install the pre-requisits.
+```
+docker build -t mulmo-cli .
+```
+
+You can use the Docker image like this:
+```
+docker run -e OPENAI_API_KEY=<your_openai_api_key> -it mulmo-cli mulmo tool scripting -i -t children_book -o ./ -s story
+```
+
 ## Configuration
 
 Create a `.env` file in your project directory with the following API keys:
@@ -96,18 +108,26 @@ OPENAI_API_KEY=your_openai_api_key
 DEFAULT_OPENAI_IMAGE_MODEL=gpt-image-1 # for the advanced image generation model
 ```
 
-#### (Optional) For Google's image generation model
+#### (Optional) For Google's image and TTS.
 ```bash
-GOOGLE_PROJECT_ID=your_google_project_id
+GEMINI_API_KEY=your_google_gemini_api_key
 ```
 
-See also [pre-requisites for Google's image generation model](./docs/pre-requisites-google.md)
+#### (Optional) For AI providers
+```bash
+# For Anthropic Claude (htmlPrompt feature)
+ANTHROPIC_API_TOKEN=your_anthropic_api_token
+```
+
+For htmlPrompt configuration, see [docs/image.md](./docs/image.md#2-htmlprompt).
+
+#### (Optional) For Movie models
+```bash
+REPLICATE_API_TOKEN=your_replicate_api_key
+```
 
 #### (Optional) For TTS models
 ```bash
-# For Nijivoice TTS
-NIJIVOICE_API_KEY=your_nijivoice_api_key
-
 # For ElevenLabs TTS
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
 ```
@@ -115,6 +135,123 @@ ELEVENLABS_API_KEY=your_elevenlabs_api_key
 #### (Optional) to access web in mulmo tool
 ```bash
 BROWSERLESS_API_TOKEN=your_browserless_api_token # to access web in mulmo tool
+```
+
+### Google Vertex AI
+
+For enterprise/production environments or to access models like Imagen 4, use Vertex AI with Application Default Credentials (ADC):
+
+```bash
+# Install gcloud CLI and authenticate
+gcloud auth application-default login
+```
+
+Configure in MulmoScript:
+```json
+{
+  "imageParams": {
+    "provider": "google",
+    "model": "imagen-4.0-generate-001",
+    "vertexai_project": "your-project-id",
+    "vertexai_location": "us-central1"
+  }
+}
+```
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `vertexai_project` | Google Cloud Project ID | None (enables Vertex AI mode when set) |
+| `vertexai_location` | Region | `us-central1` |
+
+For detailed setup instructions, see [Vertex AI Setup Guide](./docs/vertexai_en.md).
+
+### Azure OpenAI
+
+To use Azure OpenAI instead of OpenAI API:
+
+```bash
+# For image generation
+IMAGE_OPENAI_API_KEY=<your-azure-openai-api-key>
+IMAGE_OPENAI_BASE_URL=https://<resource-name>.openai.azure.com/
+
+# For TTS (Text-to-Speech)
+TTS_OPENAI_API_KEY=<your-azure-openai-api-key>
+TTS_OPENAI_BASE_URL=https://<resource-name>.openai.azure.com/
+
+# For LLM (translate, scripting)
+LLM_OPENAI_API_KEY=<your-azure-openai-api-key>
+LLM_OPENAI_BASE_URL=https://<resource-name>.openai.azure.com/
+LLM_OPENAI_API_VERSION=2025-04-01-preview  # optional
+```
+
+MulmoScript configuration (same as OpenAI):
+```json
+{
+  "imageParams": {
+    "provider": "openai",
+    "model": "gpt-image-1.5"
+  },
+  "speechParams": {
+    "speakers": {
+      "Presenter": {
+        "provider": "openai",
+        "voiceId": "alloy",
+        "model": "tts"
+      }
+    }
+  }
+}
+```
+
+**Important**: Azure deployment names must match model names exactly (e.g., deployment name `gpt-image-1.5` for model `gpt-image-1.5`).
+
+For detailed setup and region availability, see [Azure OpenAI Usage Guide](./docs/azure_openai_usage.md).
+
+### mulmo.config.json
+
+Create a `mulmo.config.json` file to set project-wide defaults. The CLI searches for it in **CWD** first, then **home directory (`~/`)**.
+
+```json
+{
+  "speechParams": {
+    "provider": "elevenlabs"
+  },
+  "imageParams": {
+    "provider": "google"
+  },
+  "audioParams": {
+    "bgm": { "kind": "path", "path": "assets/bgm.mp3" },
+    "bgmVolume": 0.15
+  }
+}
+```
+
+Top-level keys are applied as **defaults** (script values take precedence). Use the `override` key to **force** values over scripts — useful for enterprise branding or TTS provider enforcement:
+
+```json
+{
+  "speechParams": {
+    "provider": "elevenlabs"
+  },
+  "override": {
+    "speechParams": {
+      "provider": "elevenlabs",
+      "model": "eleven_multilingual_v2",
+      "speakers": {
+        "Presenter": { "provider": "elevenlabs", "voiceId": "Rachel" }
+      }
+    }
+  }
+}
+```
+
+Priority chain: `config (defaults)` < `template/style` < `script` < `config.override` < `presentationStyle (-p)`
+
+> **Note**: `kind: "path"` entries in `mulmo.config.json` are resolved relative to the **script file directory**, not the config file location. This is consistent with all other path resolution in MulmoScript.
+
+Verify the merged result with:
+```bash
+mulmo tool info merged --script <script.json>
 ```
 
 ## Workflow
@@ -160,7 +297,7 @@ DEFAULT_OPENAI_IMAGE_MODEL=gpt-image-1 # required for high-quality Ghibli-style 
 
 ### Step 2: Generate a Ghibli-style MulmoScript
 ```bash
-mulmo tool scripting -i -t ghibli_strips -o ./ -s story
+mulmo tool scripting -i -t ghibli_comic -o ./ -s story
 ```
 This will initiate an interactive conversation with the AI to create your Ghibli-inspired story. Once completed, a JSON file (e.g., `story-1747834931950.json`) will be generated.
 
@@ -187,11 +324,46 @@ writing: /Users/username/path/to/output/story-1747834931950__ja.mp4
 # Generate script from web content (requires Browserless API KEY)
 mulmo tool scripting -u https://example.com
 
+# Generate script from local file
+mulmo tool scripting --input-file story.txt
+
 # Generate script with interactive mode
 mulmo tool scripting -i
 ```
 
-When using the `⁠sensei_and_taro` template, a Nijivoice API key is required.
+Note:
+
+- When -i is specified, --input-file value will be ignored
+- When --input-file is specified, -u value will be ignored
+
+### Complete MulmoScript from minimal beats
+
+You can create a minimal JSON with just beats and complete it with `mulmo tool complete`:
+
+```json
+{
+  "beats": [
+    { "text": "Hello, welcome to MulmoCast!" },
+    { "text": "This is a simple example." }
+  ]
+}
+```
+
+Save this as `my_beats.json`, then complete it with a style:
+
+```bash
+# Complete with built-in style
+mulmo tool complete my_beats.json -s ani
+
+# Complete with custom style file
+mulmo tool complete my_beats.json -s ./my_style.json
+
+# Output to specific file
+mulmo tool complete my_beats.json -s ani -o my_script.json
+```
+
+This generates a complete MulmoScript with all required fields (canvasSize, speechParams, imageParams, etc.) from the style.
+
 
 ## Generate content from MulmoScript
 
@@ -218,6 +390,93 @@ To force regeneration, delete the old files — including temporary files — un
 
 If you modify the text or instruction fields in a MulmoScript, mulmo will automatically detect the changes and regenerate the corresponding audio content upon re-run.
 
+## Slide Presentations
+
+MulmoCast includes a powerful **Slide DSL** (`type: "slide"`) for creating structured presentation slides with JSON. Slides are rendered via Tailwind CSS + Puppeteer into images.
+
+### Features
+
+- **11 Layouts**: title, columns, comparison, grid, bigQuote, stats, timeline, split, matrix, table, funnel
+- **10 Content Block Types**: text, bullets, code, callout, metric, divider, image, imageRef, chart, mermaid
+- **13-Color Theme System**: Semantic color palette with dark/light support
+- **6 Preset Themes**: dark, pop, warm, creative, minimal, corporate
+
+### Usage
+
+Set a theme once with `slideParams.theme`, then use `"type": "slide"` in each beat:
+
+```json
+{
+  "$mulmocast": { "version": "1.1" },
+  "slideParams": {
+    "theme": { "colors": { "bg": "0F172A", "bgCard": "1E293B", "bgCardAlt": "334155", "text": "F8FAFC", "textMuted": "CBD5E1", "textDim": "64748B", "primary": "3B82F6", "accent": "8B5CF6", "success": "22C55E", "warning": "F59E0B", "danger": "EF4444", "info": "14B8A6", "highlight": "EC4899" }, "fonts": { "title": "Georgia", "body": "Calibri", "mono": "Consolas" } }
+  },
+  "beats": [
+    {
+      "text": "Welcome to the presentation",
+      "image": {
+        "type": "slide",
+        "slide": { "layout": "title", "title": "Main Title", "subtitle": "Subtitle" }
+      }
+    }
+  ]
+}
+```
+
+Or use a preset presentation style:
+
+```bash
+mulmo tool complete beats.json -s slide_dark -o presentation.json
+```
+
+Available preset styles: `slide_dark`, `slide_pop`, `slide_warm`, `slide_creative`, `slide_minimal`, `slide_corporate`
+
+For detailed layout specifications and content block reference, see the [Slide DSL documentation](./.claude/skills/slide/SKILL.md).
+
+## Markdown Slide Styles
+
+MulmoCast includes 100 pre-designed CSS styles for markdown slides, organized in 10 categories:
+
+| Category | Description | Example Styles |
+|----------|-------------|----------------|
+| business | Professional corporate designs | corporate-blue, executive-gray, finance-green |
+| tech | Technology and developer themes | cyber-neon, matrix-green, terminal-dark |
+| creative | Artistic and expressive styles | artistic-splash, watercolor-soft, graffiti |
+| minimalist | Clean and simple designs | clean-white, zen-beige, nordic-light |
+| nature | Nature-inspired themes | forest-green, ocean-blue, sunset-orange |
+| dark | Dark mode and elegant themes | charcoal-elegant, midnight-blue, obsidian |
+| colorful | Vibrant and bold colors | vibrant-pink, candy-colors, aurora |
+| vintage | Retro and classic styles | retro-70s, art-deco, typewriter |
+| japanese | Japanese aesthetic designs | washi-paper, sakura-pink, zen-garden |
+| geometric | Pattern-based designs | hexagon-pattern, isometric, bauhaus |
+
+### Usage
+
+Add the `style` property to a markdown beat:
+
+```json
+{
+  "beats": [
+    {
+      "text": "Corporate presentation slide",
+      "image": {
+        "type": "markdown",
+        "markdown": "# Quarterly Report\n\n## Key Highlights\n\n- Revenue up 15%\n- New market expansion\n- Team growth",
+        "style": "corporate-blue"
+      }
+    }
+  ]
+}
+```
+
+### Discover Available Styles
+
+Use the `mulmo tool info` command to see all available styles:
+
+```bash
+mulmo tool info styles
+```
+
 ## MulmoScript Format
 
 MulmoScript is a JSON format to define podcast or video scripts:
@@ -242,8 +501,6 @@ https://github.com/receptron/mulmocast-cli/tree/main/scripts
 
 CLI Usage
 
-
-
 ```
 mulmo <command> [options]
 
@@ -253,6 +510,9 @@ Commands:
   mulmo images <file>     Generate image files
   mulmo movie <file>      Generate movie file
   mulmo pdf <file>        Generate PDF files
+  mulmo markdown <file>   Generate markdown files
+  mulmo bundle <file>     Generate bundle files
+  mulmo html <file>       Generate html files
   mulmo tool <command>    Generate Mulmo script and other tools
 
 Options:
@@ -270,13 +530,19 @@ Positionals:
   file  Mulmo Script File                                    [string] [required]
 
 Options:
-      --version  Show version number                                   [boolean]
-  -v, --verbose  verbose log               [boolean] [required] [default: false]
-  -h, --help     Show help                                             [boolean]
-  -o, --outdir   output dir                                             [string]
-  -b, --basedir  base dir                                               [string]
-  -l, --lang     target language                  [string] [choices: "en", "ja"]
-  -f, --force    Force regenerate                     [boolean] [default: false]
+      --version            Show version number                         [boolean]
+  -v, --verbose            verbose log     [boolean] [required] [default: false]
+  -h, --help               Show help                                   [boolean]
+  -o, --outdir             output dir                                   [string]
+  -b, --basedir            base dir                                     [string]
+  -l, --lang               target language
+  [string] [choices: "en", "ja", "fr", "es", "de", "zh-CN", "zh-TW", "ko", "it",
+                                                               "pt", "ar", "hi"]
+  -f, --force              Force regenerate           [boolean] [default: false]
+  -g, --grouped            Output all files under output/<basename>/ directory
+                                                      [boolean] [default: false]
+      --backup             create backup media file   [boolean] [default: false]
+  -p, --presentationStyle  Presentation Style                           [string]
 ```
 
 ```
@@ -293,9 +559,13 @@ Options:
   -h, --help               Show help                                   [boolean]
   -o, --outdir             output dir                                   [string]
   -b, --basedir            base dir                                     [string]
-  -l, --lang               target language        [string] [choices: "en", "ja"]
+  -l, --lang               target language
+  [string] [choices: "en", "ja", "fr", "es", "de", "zh-CN", "zh-TW", "ko", "it",
+                                                               "pt", "ar", "hi"]
   -f, --force              Force regenerate           [boolean] [default: false]
-      --dryRun             Dry run                    [boolean] [default: false]
+  -g, --grouped            Output all files under output/<basename>/ directory
+                                                      [boolean] [default: false]
+      --backup             create backup media file   [boolean] [default: false]
   -p, --presentationStyle  Presentation Style                           [string]
   -a, --audiodir           Audio output directory                       [string]
 ```
@@ -314,9 +584,13 @@ Options:
   -h, --help               Show help                                   [boolean]
   -o, --outdir             output dir                                   [string]
   -b, --basedir            base dir                                     [string]
-  -l, --lang               target language        [string] [choices: "en", "ja"]
+  -l, --lang               target language
+  [string] [choices: "en", "ja", "fr", "es", "de", "zh-CN", "zh-TW", "ko", "it",
+                                                               "pt", "ar", "hi"]
   -f, --force              Force regenerate           [boolean] [default: false]
-      --dryRun             Dry run                    [boolean] [default: false]
+  -g, --grouped            Output all files under output/<basename>/ directory
+                                                      [boolean] [default: false]
+      --backup             create backup media file   [boolean] [default: false]
   -p, --presentationStyle  Presentation Style                           [string]
   -i, --imagedir           Image output directory                       [string]
 ```
@@ -335,13 +609,19 @@ Options:
   -h, --help               Show help                                   [boolean]
   -o, --outdir             output dir                                   [string]
   -b, --basedir            base dir                                     [string]
-  -l, --lang               target language        [string] [choices: "en", "ja"]
+  -l, --lang               target language
+  [string] [choices: "en", "ja", "fr", "es", "de", "zh-CN", "zh-TW", "ko", "it",
+                                                               "pt", "ar", "hi"]
   -f, --force              Force regenerate           [boolean] [default: false]
-      --dryRun             Dry run                    [boolean] [default: false]
+  -g, --grouped            Output all files under output/<basename>/ directory
+                                                      [boolean] [default: false]
+      --backup             create backup media file   [boolean] [default: false]
   -p, --presentationStyle  Presentation Style                           [string]
   -a, --audiodir           Audio output directory                       [string]
   -i, --imagedir           Image output directory                       [string]
-  -c, --caption            Video captions         [string] [choices: "en", "ja"]
+  -c, --caption            Video captions
+  [string] [choices: "en", "ja", "fr", "es", "de", "zh-CN", "zh-TW", "ko", "it",
+                                                               "pt", "ar", "hi"]
 ```
 
 ```
@@ -358,9 +638,13 @@ Options:
   -h, --help               Show help                                   [boolean]
   -o, --outdir             output dir                                   [string]
   -b, --basedir            base dir                                     [string]
-  -l, --lang               target language        [string] [choices: "en", "ja"]
+  -l, --lang               target language
+  [string] [choices: "en", "ja", "fr", "es", "de", "zh-CN", "zh-TW", "ko", "it",
+                                                               "pt", "ar", "hi"]
   -f, --force              Force regenerate           [boolean] [default: false]
-      --dryRun             Dry run                    [boolean] [default: false]
+  -g, --grouped            Output all files under output/<basename>/ directory
+                                                      [boolean] [default: false]
+      --backup             create backup media file   [boolean] [default: false]
   -p, --presentationStyle  Presentation Style                           [string]
   -i, --imagedir           Image output directory                       [string]
       --pdf_mode           PDF mode
@@ -370,14 +654,95 @@ Options:
 ```
 
 ```
+mulmo markdown <file>
+
+Generate markdown files
+
+Positionals:
+  file  Mulmo Script File                                    [string] [required]
+
+Options:
+      --version            Show version number                         [boolean]
+  -v, --verbose            verbose log     [boolean] [required] [default: false]
+  -h, --help               Show help                                   [boolean]
+  -o, --outdir             output dir                                   [string]
+  -b, --basedir            base dir                                     [string]
+  -l, --lang               target language
+  [string] [choices: "en", "ja", "fr", "es", "de", "zh-CN", "zh-TW", "ko", "it",
+                                                               "pt", "ar", "hi"]
+  -f, --force              Force regenerate           [boolean] [default: false]
+  -g, --grouped            Output all files under output/<basename>/ directory
+                                                      [boolean] [default: false]
+      --backup             create backup media file   [boolean] [default: false]
+  -p, --presentationStyle  Presentation Style                           [string]
+      --image_width        Image width (e.g., 400px, 50%, auto)         [string]
+```
+
+```
+mulmo html <file>
+
+Generate html files
+
+Positionals:
+  file  Mulmo Script File                                    [string] [required]
+
+Options:
+      --version            Show version number                         [boolean]
+  -v, --verbose            verbose log     [boolean] [required] [default: false]
+  -h, --help               Show help                                   [boolean]
+  -o, --outdir             output dir                                   [string]
+  -b, --basedir            base dir                                     [string]
+  -l, --lang               target language
+  [string] [choices: "en", "ja", "fr", "es", "de", "zh-CN", "zh-TW", "ko", "it",
+                                                               "pt", "ar", "hi"]
+  -f, --force              Force regenerate           [boolean] [default: false]
+  -g, --grouped            Output all files under output/<basename>/ directory
+                                                      [boolean] [default: false]
+      --backup             create backup media file   [boolean] [default: false]
+  -p, --presentationStyle  Presentation Style                           [string]
+      --image_width        Image width (e.g., 400px, 50%, auto)         [string]
+```
+
+```
+mulmo bundle <file>
+
+Generate bundle files
+
+Positionals:
+  file  Mulmo Script File                                    [string] [required]
+
+Options:
+      --version            Show version number                         [boolean]
+  -v, --verbose            verbose log     [boolean] [required] [default: false]
+  -h, --help               Show help                                   [boolean]
+  -o, --outdir             output dir                                   [string]
+  -b, --basedir            base dir                                     [string]
+  -l, --lang               target language
+  [string] [choices: "en", "ja", "fr", "es", "de", "zh-CN", "zh-TW", "ko", "it",
+                                                               "pt", "ar", "hi"]
+  -f, --force              Force regenerate           [boolean] [default: false]
+  -g, --grouped            Output all files under output/<basename>/ directory
+                                                      [boolean] [default: false]
+      --backup             create backup media file   [boolean] [default: false]
+  -p, --presentationStyle  Presentation Style                           [string]
+```
+
+```
 mulmo tool <command>
 
 Generate Mulmo script and other tools
 
 Commands:
-  mulmo tool scripting  Generate mulmocast script
-  mulmo tool prompt     Dump prompt from template
-  mulmo tool schema     Dump mulmocast schema
+  mulmo tool scripting               Generate mulmocast script
+  mulmo tool prompt                  Dump prompt from template
+  mulmo tool schema                  Dump mulmocast schema
+  mulmo tool story_to_script <file>  Generate Mulmo script from story
+  mulmo tool whisper <file>          Process file with whisper
+  mulmo tool complete <file>         Complete MulmoScript with schema defaults
+                                     and optional style
+  mulmo tool info [category]         Show available options (styles, bgm,
+                                     templates, voices, images, movies, llm,
+                                     themes, config, merged)
 
 Options:
       --version  Show version number                                   [boolean]
@@ -398,16 +763,19 @@ Options:
   -b, --basedir      base dir                                           [string]
   -u, --url          URLs to reference (required when not in interactive mode)
                                                            [array] [default: []]
+      --input-file   input file name                                    [string]
   -i, --interactive  Generate script in interactive mode with user prompts
                                                                        [boolean]
   -t, --template     Template name to use
-       [string] [choices: "business", "children_book", "coding", "comic_strips",
-                         "ghibli_strips", "podcast_standard", "sensei_and_taro"]
+              [string] [choices: "akira_comic", "ani", "business", "characters",
+      "children_book", "coding", "comic_strips", "documentary", "drslump_comic",
+   "ghibli_comic", "ghibli_comic_strips", "ghost_comic", "html", "image_prompt",
+                  "leda", "onepiece_comic", "portrait_movie", "realistic_movie",
+                 "sensei_and_taro", "shorts", "sifi_story", "trailer", "vision"]
   -c, --cache        cache dir                                          [string]
   -s, --script       script filename                [string] [default: "script"]
       --llm          llm
-              [string] [choices: "openAIAgent", "anthropicAgent", "geminiAgent",
-                                                                    "groqAgent"]
+             [string] [choices: "openai", "anthropic", "gemini", "groq", "mock"]
       --llm_model    llm model                                          [string]
 ```
 
@@ -426,12 +794,15 @@ Options:
   -o, --outdir           output dir                                     [string]
   -b, --basedir          base dir                                       [string]
   -t, --template         Template name to use
-       [string] [choices: "business", "children_book", "coding", "comic_strips",
-                         "ghibli_strips", "podcast_standard", "sensei_and_taro"]
+              [string] [choices: "akira_comic", "ani", "business", "characters",
+      "children_book", "coding", "comic_strips", "documentary", "drslump_comic",
+   "ghibli_comic", "ghibli_comic_strips", "ghost_comic", "html", "image_prompt",
+                  "leda", "onepiece_comic", "portrait_movie", "realistic_movie",
+                 "sensei_and_taro", "shorts", "sifi_story", "trailer", "vision"]
   -s, --script           script filename            [string] [default: "script"]
       --beats_per_scene  beats per scene                   [number] [default: 3]
       --llm              llm
-                     [string] [choices: "openAI", "anthropic", "gemini", "groq"]
+             [string] [choices: "openai", "anthropic", "gemini", "groq", "mock"]
       --llm_model        llm model                                      [string]
       --mode             story to script generation mode
               [string] [choices: "step_wise", "one_step"] [default: "step_wise"]
@@ -447,8 +818,11 @@ Options:
   -v, --verbose   verbose log              [boolean] [required] [default: false]
   -h, --help      Show help                                            [boolean]
   -t, --template  Template name to use
-       [string] [choices: "business", "children_book", "coding", "comic_strips",
-                         "ghibli_strips", "podcast_standard", "sensei_and_taro"]
+              [string] [choices: "akira_comic", "ani", "business", "characters",
+      "children_book", "coding", "comic_strips", "documentary", "drslump_comic",
+   "ghibli_comic", "ghibli_comic_strips", "ghost_comic", "html", "image_prompt",
+                  "leda", "onepiece_comic", "portrait_movie", "realistic_movie",
+                 "sensei_and_taro", "shorts", "sifi_story", "trailer", "vision"]
 ```
 
 ```
@@ -460,6 +834,77 @@ Options:
       --version  Show version number                                   [boolean]
   -v, --verbose  verbose log               [boolean] [required] [default: false]
   -h, --help     Show help                                             [boolean]
+```
+
+```
+mulmo tool complete <file>
+
+Complete MulmoScript with schema defaults and optional style
+
+Positionals:
+  file  Input beats file path (JSON)                         [string] [required]
+
+Options:
+      --version   Show version number                                  [boolean]
+  -v, --verbose   verbose log              [boolean] [required] [default: false]
+  -h, --help      Show help                                            [boolean]
+  -o, --output    Output file path (default: <file>_completed.json)     [string]
+  -t, --template  Template name to apply
+              [string] [choices: "akira_comic", "ani", "business", "characters",
+      "children_book", "coding", "comic_strips", "documentary", "drslump_comic",
+   "ghibli_comic", "ghibli_comic_strips", "ghost_comic", "html", "image_prompt",
+                  "leda", "onepiece_comic", "portrait_movie", "realistic_movie",
+                 "sensei_and_taro", "shorts", "sifi_story", "trailer", "vision"]
+  -s, --style     Style name or file path (.json)                       [string]
+
+Examples:
+  # Complete minimal script with schema defaults
+  mulmo tool complete input.json
+
+  # Apply built-in style
+  mulmo tool complete input.json -s ani
+
+  # Apply custom style file
+  mulmo tool complete input.json -s ./my_style.json
+
+  # Apply template
+  mulmo tool complete input.json -t children_book
+```
+
+```
+mulmo tool info [category]
+
+Show available options (styles, bgm, templates, voices, images, movies, llm,
+themes, config, merged)
+
+Positionals:
+  category  Category to show info for
+  [string] [choices: "styles", "bgm", "templates", "voices", "images", "movies",
+                                            "llm", "themes", "config", "merged"]
+
+Options:
+      --version  Show version number                                   [boolean]
+  -v, --verbose  verbose log               [boolean] [required] [default: false]
+  -h, --help     Show help                                             [boolean]
+  -F, --format   Output format
+                    [string] [choices: "text", "json", "yaml"] [default: "text"]
+  -S, --script   Script file path (required for 'merged' category)      [string]
+
+Examples:
+  # Show all available categories
+  mulmo tool info
+
+  # List all 100 markdown styles
+  mulmo tool info styles
+
+  # List available BGM assets
+  mulmo tool info bgm
+
+  # List TTS providers and voices
+  mulmo tool info voices
+
+  # Output as JSON for programmatic use
+  mulmo tool info styles --format json
 ```
 
 
